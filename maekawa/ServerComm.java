@@ -16,7 +16,9 @@ import java.util.concurrent.locks.ReentrantLock;
 
 
 public class ServerComm implements Runnable {
-	static boolean debug = true;
+	static boolean debug = false;
+	
+	int id;
 	
 	BufferedReader dataIn;
 	PrintStream dataOut;
@@ -52,6 +54,10 @@ public class ServerComm implements Runnable {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+	public ServerComm(Socket socket, int _id) {
+		this(socket);
+		id = _id;
 	}
 	public ServerComm() {
 		// simply a placeholder
@@ -162,6 +168,15 @@ public class ServerComm implements Runnable {
 		} finally {
 			ackLock.unlock();
 		}
+	}
+	
+	public void setID(int _id) {
+		id = _id;
+	}
+	
+	@Override
+	public String toString() {
+		return "s-comm(" + id + ")";
 	}
 	
 }

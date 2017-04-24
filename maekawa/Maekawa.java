@@ -21,7 +21,7 @@ public class Maekawa implements Lock, Messenger {
 	
 	DirectClock v;
 	
-	private boolean voted = false;
+	private boolean hasGranted = false;
 	PriorityQueue<Request> requests;
 	Request current = null; // may not need
 	
@@ -31,6 +31,17 @@ public class Maekawa implements Lock, Messenger {
 	
 	List<ServerComm> myQuorum = new LinkedList<ServerComm>();
 	List<ServerComm> everyone;
+	
+	List<Site> requestSet;
+	
+	Message requestMessage;
+	Message grantMessage;
+	Message failMessage;
+	Message inquireMessage;
+	Message yieldMessage;
+	Message releaseMessage;
+	
+	boolean wantCS = false;
 	
 	public Maekawa() {
 		// establish connection with all other servers
@@ -46,6 +57,13 @@ public class Maekawa implements Lock, Messenger {
 	    myID = sc.nextInt() - 1;
 	    int numServer = sc.nextInt();
 	    requests = new PriorityQueue<Request>(numServer);
+	    
+	    requestMessage = new Message(myID, "request", Integer.MAX_VALUE, "");
+		grantMessage = new Message(myID, "grant", Integer.MAX_VALUE, "");
+		failMessage = new Message(myID, "fail", Integer.MAX_VALUE, "");
+		inquireMessage = new Message(myID, "inquire", Integer.MAX_VALUE, "");
+		yieldMessage = new Message(myID, "yield", Integer.MAX_VALUE, "");
+		releaseMessage = new Message(myID, "release", Integer.MAX_VALUE, "");
 	    
 	    v = new DirectClock(numServer, myID);
 
@@ -70,6 +88,7 @@ public class Maekawa implements Lock, Messenger {
 	    for(int i = 0; i < numServer; i++)
 	    	serverComms.add(new ServerComm());
 	    me = serverComms.get(myID);
+	    me.setID(myID);
 	    // set up this server
 	    // serverComms.set(myID, new ServerComm(ips.get(myID), ports.get(myID)));
 	    ServerSocket listener = null;
@@ -80,7 +99,7 @@ public class Maekawa implements Lock, Messenger {
 				if(Maekawa.debug)
 					System.out.println("waiting for server with lower id");
 		    	Socket otherServer = listener.accept();
-		    	ServerComm comm = new ServerComm(otherServer);
+		    	ServerComm comm = new ServerComm(otherServer, i);
 		    	// find out id of this server
 		    	int n = Integer.parseInt(comm.dataIn.readLine());
 		    	serverComms.set(n, comm);
@@ -94,7 +113,7 @@ public class Maekawa implements Lock, Messenger {
 		    	while(true) {
 			    	try {
 						Socket otherServer = new Socket(ips.get(i), ports.get(i));
-						ServerComm comm = new ServerComm(otherServer);
+						ServerComm comm = new ServerComm(otherServer, i);
 						serverComms.set(i, comm);
 						comm.dataOut.println(myID);
 						if(Maekawa.debug)
@@ -120,6 +139,7 @@ public class Maekawa implements Lock, Messenger {
 	    for(int row = 0; row < numRows; row++) {
 	    	ArrayList<ServerComm> rowList = new ArrayList<ServerComm>();
 	    	for(int col = 0; col < numPerRow; col++) {
+	    		if(serverCommIndex >= serverComms.size()) continue;
 	    		ServerComm s = serverComms.get(serverCommIndex++);
 	    		if(me.equals(s)) {
 	    			myRow = row;
@@ -129,12 +149,44 @@ public class Maekawa implements Lock, Messenger {
 	    	}
 	    	grid.add(rowList);
 	    }
-	    if(Maekawa.debug) {
-	    	for(int i = 0; i < grid.size(); i++) {
-	    		System.out.println("row " + i + " has " + grid.get(i).size() + " cols");
+	    if(Maekawa.debug && myID == 0) {
+	    	System.out.println("grid setting");
+	    	for(int i = grid.size()-1; i <= 0; i--) {
+	    		for(int j = 0; j < grid.get(i).size(); j++) {
+	    			System.out.print("" + grid.get(i).get(j).toString() + " ");
+	    		}
+	    		System.out.println();
 	    	}
 	    }
 	    
+	    // create our quorum
+	    requestSet = new ArrayList<Site>();
+	    for(int col = 0; col < grid.get(myRow).size(); col++) {
+	    	// add everyone in our row
+			Site s = new Site(grid.get(myRow).get(col));
+			requestSet.add(s);
+		}
+		for(int row = 0; row < grid.size(); row++) {
+			// add everyone in our mod column (except ourself, since added our entire row first)
+			ArrayList<ServerComm> theRow = grid.get(row);
+			int rowSize = theRow.size();
+			Site s;
+			if(row != myRow) {
+				s = new Site(theRow.get(myCol % rowSize));
+				requestSet.add(s);
+			}
+		}
+		
+		if(Maekawa.debug) {
+			System.out.println("*****************************");
+			System.out.println("myQuorum: ");
+			for(Site s: requestSet) {
+				System.out.println(s);
+			}
+			System.out.println("*****************************");
+		}
+	    
+		// activate channels to everyone else
 	    for(int i = 0; i < serverComms.size(); i++) {
 	    	if(i != myID) {
 	    		serverComms.get(i).set(this);
@@ -147,30 +199,23 @@ public class Maekawa implements Lock, Messenger {
 	@Override
 	public synchronized void requestCS() {
 		Message m = new Message(myID, "request", v.getValue(myID), "");
-		// request CS from our row
-		for(int col = 0; col < grid.get(myRow).size(); col++) {
+		wantCS = true;
+		for(Site s: requestSet) {
+			// send request to everyone in our quorum
+			s.isActive = true;
 			v.sendAction();
-			if(myCol != col) {
-				m.timeStamp = v.getValue(myID);
-				grid.get(myRow).get(col).sendMsg(m);
+			m.timeStamp = v.getValue(myID);
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + m + "to: " + s);
+			}
+			if(s.server.id != myID) {
+				s.server.sendMsg(m);
 			}
 			else {
-				Request r = new Request(myID, v.getValue(myID), me, "request");
-				v.sendAction();
-				m.timeStamp = v.getValue(myID);
 				handleMessage(m);
 			}
 		}
-		// request CS from everyone in column under us
-		for(int row = myRow - 1; row >= 0; row--) {
-			if(Maekawa.debug) {
-				System.out.println("my row " + myRow);
-				System.out.println("contacting row, col " + row + " " + myCol);
-			}
-			v.sendAction();
-			m.timeStamp = v.getValue(myID);
-			grid.get(row).get(myCol).sendMsg(m);
-		}
+		
 		while(!okayCS()) {
 			try {
 				wait();
@@ -188,30 +233,22 @@ public class Maekawa implements Lock, Messenger {
 	}
 
 	@Override
-	public void releaseCS() {
-		// TODO Auto-generated method stub
-		Message m = new Message(myID, "release", -1, "");
-		for(ServerComm s: myQuorum) {
+	public synchronized void releaseCS() {
+		wantCS = false;
+		for(Site s: requestSet) {
 			v.sendAction();
-			if(!s.equals(me)) {
-				m.timeStamp = v.getValue(myID);
-				s.sendMsg(m);
+			releaseMessage.timeStamp = v.getValue(myID);
+			s.resetFlags();
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + releaseMessage + " to:" + s);
+			}
+			if(s.server.id != myID) {
+				s.server.sendMsg(releaseMessage);
 			}
 			else {
-				// my own request
-				current = requests.poll();
-				if(current != null) {
-					// let them know they have our vote now
-					v.sendAction();
-					Message msg = new Message(myID, "success", v.getValue(myID), "");
-					current.getServer().sendMsg(msg);
-				}
-				else {
-					voted = false;
-				}
+				handleMessage(releaseMessage);
 			}
 		}
-		myQuorum.clear();
 	}
 
 	@Override
@@ -221,74 +258,227 @@ public class Maekawa implements Lock, Messenger {
 	}
 	
 	private boolean okayCS() {
-		int currentVotes = myQuorum.size();
-		int requiredVotes = grid.get(myRow).size() + myRow;
-		boolean enough = currentVotes == requiredVotes;
-		if(Maekawa.debug && !enough) {
-			System.out.println("not enough votes");
+		for(Site s: requestSet) {
+			if(!s.grantReceived) {
+				return false;
+			}
 		}
-		return enough;
+		return true;
 	}
 	
 
 
 	@Override
 	public synchronized void handleMessage(Message m) {
+		if(Maekawa.debug) {
+			System.out.println("before handling message:");
+			Site.printCurrent(requestSet);
+		}
+
+		if(Maekawa.debug) {
+			System.out.println(me + " received from " + everyone.get(m.id) + " : " + m);
+		}
+		
+		v.receiveAction(m.id, m.timeStamp);
+		v.sendAction();
 		
 		if(m.tag.equals("request")) {
-			
-			
-			Request r = new Request(m.id, m.timeStamp, everyone.get(m.id), m.message);
-			requests.add(r);
-			
-			if(current == null) {
-				current = requests.poll();
-				
-				if(current.getID() != myID) {
-					if(Maekawa.debug) {
-						System.out.println("notifying new request");
-					}
-					v.sendAction();
-					Message reply = new Message(myID, "success", v.getValue(myID), "");
-					everyone.get(m.id).sendMsg(reply);
-				}
-				else {
-					if(Maekawa.debug) {
-						System.out.println("added ourself to quorum");
-					}
-					myQuorum.add(current.getServer());
-				}
-			}
+			handleRequest(m);
 		}
 		else if(m.tag.equals("release")) {
-			current = requests.poll();
-			if(current != null) {
-				v.sendAction();
-				if(current.getID() != myID) {
-					Message reply = new Message(myID, "success", v.getValue(myID), "");
-					everyone.get(current.getID()).sendMsg(reply);
-				}
-				else {
-					myQuorum.add(me);
-					notify();
-				}
-			}
-			else {
-				voted = false;
-			}
+			handleRelease(m);
 		}
-		else if(m.tag.equals("success")) {
-			myQuorum.add(everyone.get(m.id));
-			notify();
-		}
-		else if(m.tag.equals("fail")) {
-			
+		else if(m.tag.equals("grant")) {
+			handleGrant(m);
 		}
 		else if(m.tag.equals("inquire")) {
-			
+			handleInquire(m);
+		}
+		else if(m.tag.equals("yield")) {
+			handleYield(m);
+		}
+		else if(m.tag.equals("fail")) {
+			Site.fail(requestSet, m.id);
+		}
+		
+		if(Maekawa.debug) {
+			System.out.println("after handling message:");
+			Site.printCurrent(requestSet);
 		}
 		
 	}
+	
+	private synchronized void handleYield(Message m) {
+		requests.add(current);
+		current = requests.poll();
+		grantMessage.timeStamp = v.getValue(myID);
+		if(Maekawa.debug) {
+			System.out.println(me + " sending:" + grantMessage + " to:" + current.getID());
+		}
+		if(myID != current.getServer().id) {
+			current.getServer().sendMsg(grantMessage);
+		}
+		else {
+			//handleMessage(grantMessage);
+			handleGrant(grantMessage);
+		}
+	}
+	private synchronized void handleGrant(Message m) {
+		if(wantCS) {
+			Site.grant(requestSet, m.id);
+			notify();
+		}
+		else {
+			releaseMessage.timeStamp = v.getValue(myID);
+			if(Maekawa.debug) {
+				System.out.println(me + " sending: " + releaseMessage + " to " + everyone.get(m.id));
+			}
+			if(m.id != myID) {
+				everyone.get(m.id).sendMsg(releaseMessage);
+			}
+			else {
+				handleRelease(m);
+			}
+		}
+	}
+	private synchronized void handleInquire(Message m) {
+		if(Site.mustYield(requestSet, m.id)) {
+			Site.yield(requestSet, m.id);
+			yieldMessage.timeStamp = v.getValue(myID);
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + yieldMessage + " to:" + current.getID());
+			}
+			
+			if(myID != m.id) {
+				everyone.get(m.id).sendMsg(yieldMessage);
+			}
+			else {
+				//handleMessage(yieldMessage);
+				handleYield(m);
+			}
+		}
+	}
+	private synchronized void handleRelease(Message m) {
+		current = requests.poll();
+		if(current != null) {
+			if(current.getID() != myID) {
+				grantMessage.timeStamp = v.getValue(myID);
+				if(Maekawa.debug) {
+					System.out.println(me + " sending:" + grantMessage + " to:" + current.getID());
+				}
+				current.getServer().sendMsg(grantMessage);
+			}
+			else {
+				//handleMessage(grantMessage);
+				handleGrant(grantMessage);
+			}
+		}
+		else {
+			hasGranted = false;
+		}
+	}
+	private synchronized void handleRequest(Message m) {
+
+		Request r = new Request(m.id, m.timeStamp, everyone.get(m.id), m.message);
+		requests.add(r);
+		
+		Request newHead = requests.peek();
+		
+		if(!hasGranted) {
+			hasGranted = true;
+			grantMessage.timeStamp = v.getValue(myID);
+			current = requests.poll();
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + grantMessage + " to:" + current.getID());
+			}
+			if(current.getID() != myID) {
+				current.getServer().sendMsg(grantMessage);
+			}
+			else {
+				//handleMessage(grantMessage);
+				handleGrant(grantMessage);
+			}
+		}
+		else if(isGreater(current.getTS(), current.getID(), newHead.getTS(), newHead.getID())) {
+			inquireMessage.timeStamp = v.getValue(myID);
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + inquireMessage + " to:" + current.getID());
+			}
+			if(current.getID() != myID) {
+				current.getServer().sendMsg(inquireMessage);
+			}
+			else {
+				//handleMessage(inquireMessage);
+				handleInquire(inquireMessage);
+			}
+		}
+		else if(myID < m.id || okayCS()) {
+			failMessage.timeStamp = v.getValue(myID);
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + failMessage + " to:" + r.getID());
+			}
+			if(r.getID() != myID)
+				r.getServer().sendMsg(failMessage);
+			else
+				handleMessage(failMessage);
+		}
+		else {
+			// if we have our own grant,
+			// and we need another grant from m.id for CS,
+			// then if m.id < my.id,
+			// yield our grant to m.id
+			Site.yield(requestSet, myID);
+			Request temp = current;
+			current = requests.poll();
+			requests.add(temp);
+			grantMessage.timeStamp = v.getValue(myID);
+			if(Maekawa.debug) {
+				System.out.println(me + " sending:" + grantMessage + " to: " + current.getServer());
+			}
+			if(current.getID() != myID) {
+				current.getServer().sendMsg(grantMessage);
+			}
+			else {
+				//handleMessage(grantMessage);
+				handleGrant(grantMessage);
+			}
+		}
+	}
+	
+	
+	private void returnVote(int id) {
+		synchronized(myQuorum) {
+		Iterator<ServerComm> it = myQuorum.iterator();
+		while(it.hasNext()) {
+			if(it.next().equals(everyone.get(id))) {
+				it.remove();
+				return;
+			}
+		}
+		}
+	}
+	
+	private void printQuorum() {
+		System.out.println("current votes: ");
+		for(Site s: requestSet) {
+			if(s.grantReceived) {
+				System.out.println(s);
+			}
+		}
+//		synchronized(myQuorum) {
+//		System.out.println("my quorum is: ");
+//		for(ServerComm s: myQuorum) {
+//			System.out.println("$" + s);
+//		}
+//		}
+	}
+	
+	private boolean isGreater(Integer entry1, int pid1, Integer entry2, int pid2) {
+		if(entry2 == Integer.MAX_VALUE) return false;
+		return (entry1 > entry2) ||
+				((entry1 == entry2) && (pid1 > pid2));
+	}
+	
 
 	
 	
@@ -300,10 +490,10 @@ public class Maekawa implements Lock, Messenger {
 	
 	
 	public static void main(String[] args) {
-		//GenerateServerInfo.go(4, "localhost", 8025);
+		//GenerateServerInfo.go(2, "localhost", 8025);
 		Maekawa mutex = new Maekawa();
 		
-		for(int i = 0; i < 10; i++) {
+		for(int i = 0; i < 2; i++) {
 			mutex.requestCS();
 			
 			System.out.println("iteration: " + i);
@@ -311,10 +501,88 @@ public class Maekawa implements Lock, Messenger {
 			
 			mutex.releaseCS();
 		}
+		System.out.println("*****\n\n\n*****\ndone\n\n\n*****\n\n\n******" +
+				"****************************************************");
 		//while(true) {}
 	}
 	private static void logTime(int id, long time) {
 		System.out.println("server " + id + ": " + time + " ns");
 	}
 	
+}
+
+class Site {
+	ServerComm server;
+	boolean failReceived = false;
+	boolean grantReceived = false;
+	boolean yieldGiven = false;
+	
+	boolean isActive = false;
+	
+	public Site(ServerComm s) {
+		server = s;
+	}
+	public void resetFlags() {
+		failReceived = false;
+		grantReceived = false;
+		yieldGiven = false;
+		isActive = false;
+	}
+	
+	@Override
+	public String toString() {
+		return server.toString();
+	}
+	
+	public static boolean mustYield(List<Site> sites, int skip) {
+		for(Site s: sites) {
+			if(s.server.id != skip && s.isActive) {
+				if(s.failReceived) {
+					return true;
+				}
+				if(s.yieldGiven && !s.grantReceived) {
+					return true;
+				}
+			}			
+		}
+		
+		return false;
+	}
+
+	public static void yield(List<Site> sites, Integer id) {
+		Site site = find(sites, id);
+		site.isActive = true;
+		site.yieldGiven = true;
+		site.grantReceived = false;
+	}
+	public static void fail(List<Site> sites, int id) {
+		Site site = find(sites, id);
+		site.resetFlags();
+		site.isActive = true;
+		site.failReceived = true;
+	}
+	public static void grant(List<Site> sites, int id) {
+		Site site = find(sites, id);
+		site.resetFlags();
+		site.isActive = true;
+		site.grantReceived = true;
+	}
+	public static Site find(List<Site> sites, int id) {
+		for(Site s: sites) {
+			if(s.server.id == id) {
+				return s;
+			}
+		}
+		return null;
+	}
+	public static void printCurrent(List<Site> sites) {
+		for(Site site: sites) {
+			String s = "site " + site.toString() + ":";
+			if(site.isActive) s += "active ";
+			if(site.grantReceived) s += "grant ";
+			if(site.failReceived) s += "fail ";
+			if(site.yieldGiven) s += "yield ";
+			System.out.println(s);
+		}
+	}
 }

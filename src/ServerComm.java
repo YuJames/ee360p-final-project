@@ -1,22 +1,25 @@
+package finalProject;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.List;
+import java.util.Scanner;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-import hw4.multiServerShop.Message;
-import hw4.multiServerShop.Messenger;
-import hw4.multiServerShop.Server;
-import hw4.multiServerShop.TCPserver;
-import hw4.multiServerShop.Timeout;
-import hw4.multiServerShop.TCPserver.TCPclientHandler;
 
 public class ServerComm implements Runnable {
+	static boolean debug = false;
+	
+	int id;
+	
 	BufferedReader dataIn;
 	PrintStream dataOut;
 	
@@ -34,6 +37,9 @@ public class ServerComm implements Runnable {
 			InputStreamReader isr = new InputStreamReader(socket.getInputStream());
 			dataIn = new BufferedReader(isr);
 			dataOut = new PrintStream(socket.getOutputStream());
+			if(ServerComm.debug && dataOut == null) {
+				System.out.println("dataOut is null");
+			}
 		} catch (UnknownHostException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
@@ -49,6 +55,10 @@ public class ServerComm implements Runnable {
 			e.printStackTrace();
 		}
 	}
+	public ServerComm(Socket socket, int _id) {
+		this(socket);
+		id = _id;
+	}
 	public ServerComm() {
 		// simply a placeholder
 	}
@@ -62,46 +72,49 @@ public class ServerComm implements Runnable {
 	 * @return
 	 */
 	public boolean sendMsg(Message msg) {
-		ackLock.lock();
+//		ackLock.lock();
+		if(ServerComm.debug) {
+			System.out.println(msg);
+		}
 		dataOut.println(msg.toString());
-		if(!msg.tag.equals("request")) {
-			// no ack needed unless this server is requesting to other server
-			ackLock.unlock();
-			return true;
-		}
-		try {
-			// using Timeout
-			Thread t = new Thread(new Timeout(100, Thread.currentThread()));
-			// should not readLine(), since readLine is used by run()
-			// reply = dataIn.readLine();
-			if(Server.debug)
-				System.out.println("waiting for ack");
-			t.start();
-			ack.await();
-			t.interrupt();
-			if(Server.debug)
-				System.out.println("ack received");
-		} catch (SecurityException e) {
-			// could be thrown by interrupting the Timeout
-		} catch (InterruptedException e) {
-			// timeout exceeded
-			if(Server.debug)
-				System.out.println("wait for ack timed out");
-			return false;
-		} finally {
-			ackLock.unlock();
-		}
-//		catch (IOException e) {
-//			// read reply failed
+//		if(!msg.tag.equals("request")) {
+//			// no ack needed unless this server is requesting to other server
+//			ackLock.unlock();
+//			return true;
+//		}
+//		try {
+//			// using Timeout
+//			Thread t = new Thread(new Timeout(100, Thread.currentThread()));
+//			// should not readLine(), since readLine is used by run()
+//			// reply = dataIn.readLine();
+//			if(ServerComm.debug)
+//				System.out.println("waiting for ack");
+//			t.start();
+//			ack.await();
+//			t.interrupt();
+//			if(ServerComm.debug)
+//				System.out.println("ack received");
+//		} catch (SecurityException e) {
+//			// could be thrown by interrupting the Timeout
+//		} catch (InterruptedException e) {
+//			// timeout exceeded
+//			if(ServerComm.debug)
+//				System.out.println("wait for ack timed out");
+//			return false;
+//		} finally {
+////			ackLock.unlock();
+//		}
+////		catch (IOException e) {
+////			// read reply failed
+////			return false;
+////		}
+//		if(Thread.currentThread().isInterrupted()) {
+//			if(ServerComm.debug)
+//				System.out.println("wait for ack timed out (if)");
 //			return false;
 //		}
-		if(Thread.currentThread().isInterrupted()) {
-			if(Server.debug)
-				System.out.println("wait for ack timed out (if)");
-			return false;
-		}
-		if(Server.debug)
-			System.out.println("msg has been acked");
+//		if(ServerComm.debug)
+//			System.out.println("msg has been acked");
 		return true;
 	}
 	
@@ -121,23 +134,23 @@ public class ServerComm implements Runnable {
 	public void run() {
 		while(true) {
 			try {
-				if(Server.debug)
+				if(ServerComm.debug)
 					System.out.println("waiting for new message");
 				String message = dataIn.readLine();
-				if(Server.debug) System.out.println("reading new message with: " + message);
+				if(ServerComm.debug) System.out.println("reading new message with: " + message);
 				Message msg = new Message(message);
-				if(msg.tag.equals("ack")) {
-					ackLock.lock();
-					try {
-						ack.signalAll();
-					} finally {
-						ackLock.unlock();
-					}
-				}
+//				if(msg.tag.equals("ack")) {
+//					ackLock.lock();
+//					try {
+//						ack.signalAll();
+//					} finally {
+//						ackLock.unlock();
+//					}
+//				}
 				messenger.handleMessage(msg);
 			} catch (IOException e) {
 				// other server is down
-				if(Server.debug)
+				if(ServerComm.debug)
 					System.out.println("server comm broken");
 				break;
 			}
@@ -151,10 +164,22 @@ public class ServerComm implements Runnable {
 			ack.await();
 		} catch (InterruptedException e) {
 			// interrupt caused by external timer
-			if(Server.debug) System.out.println("timeout on waiting for ack");
+			if(ServerComm.debug) System.out.println("timeout on waiting for ack");
 		} finally {
 			ackLock.unlock();
 		}
 	}
 	
+	public void setID(int _id) {
+		id = _id;
+	}
+	
+	@Override
+	public String toString() {
+		return "s-comm(" + id + ")";
+	}
+	
 }
+
+
+

@@ -27,8 +27,6 @@ public class ServerComm implements Runnable {
 	Lock ackLock = new ReentrantLock();
 	Condition ack = ackLock.newCondition();
 	
-	TCPserver server;
-	TCPserver.TCPclientHandler handler;
 	
 	public ServerComm(String ip, int port) {
 		try {
@@ -121,14 +119,7 @@ public class ServerComm implements Runnable {
 	public void set(Messenger _messenger) {
 		messenger = _messenger;
 	}
-	
-	public void setServer(TCPserver _server) {
-		server = _server;
-		handler = _server.new TCPclientHandler();
-	}
-	public void updateDatabase(String command) {
-		handler.executeCommand(command);
-	}
+
 	
 	@Override
 	public void run() {

@@ -490,19 +490,32 @@ public class Maekawa implements Lock, Messenger {
 	
 	
 	public static void main(String[] args) {
-		//GenerateServerInfo.go(2, "localhost", 8025);
+		//GenerateServerInfo.go(4, "localhost", 8025);
 		Maekawa mutex = new Maekawa();
+		Scanner userInput = new Scanner(System.in);
+		int count = 0;
 		
-		for(int i = 0; i < 2; i++) {
+		while(true) {
+			
+			if(userInput.hasNextLine()) {
+				String s = userInput.nextLine();
+				if(!s.equals("request")) {
+					continue;
+				}
+			}
+			
 			mutex.requestCS();
 			
-			System.out.println("iteration: " + i);
+			System.out.println("iteration: " + count++);
 			logTime(mutex.myID, System.nanoTime());
 			
 			mutex.releaseCS();
+			
+			System.out.println("*****\n\n\n*****\ndone\n\n\n*****\n\n\n******" +
+					"****************************************************");
+			
 		}
-		System.out.println("*****\n\n\n*****\ndone\n\n\n*****\n\n\n******" +
-				"****************************************************");
+
 		//while(true) {}
 	}
 	private static void logTime(int id, long time) {

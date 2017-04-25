@@ -8,6 +8,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Scanner;
 
 public class GenerateServerInfo {
 	private static PrintWriter writer;
@@ -54,7 +55,16 @@ public class GenerateServerInfo {
 	}
 	
 	public static void main(String[] args) {
-		go(9, "localhost", 8025);
+		System.out.println("enter a number of servers: ");
+		
+		Scanner sc = new Scanner(System.in);
+		
+		String s = sc.nextLine();
+		int n = Integer.parseInt(s);
+		
+		go(n, "localhost", 8025);
+		
+		System.out.println("file created: maekawa_servers.txt");
 	}
 	
 }

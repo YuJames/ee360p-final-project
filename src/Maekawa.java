@@ -47,13 +47,7 @@ public class Maekawa implements Lock, Messenger {
 		// establish connection with all other servers
 		
 	   Scanner sc = new Scanner(System.in);
-		//Scanner sc = null;
-//		try {
-//			sc = new Scanner(new File("input/maekawa_servers.txt"));
-//		} catch (FileNotFoundException e2) {
-//			// TODO Auto-generated catch block
-//			e2.printStackTrace();
-//		}
+	   
 	    myID = sc.nextInt() - 1;
 	    int numServer = sc.nextInt();
 	    requests = new PriorityQueue<Request>(numServer);
@@ -73,7 +67,7 @@ public class Maekawa implements Lock, Messenger {
 	    ArrayList<String> ips = new ArrayList<String>(numServer);
 	    ArrayList<Integer> ports = new ArrayList<Integer>(numServer);
 	    for (int i = 0; i < numServer; i++) {
-	      // TODO: parse inputs to get the ips and ports of servers
+	      // parse inputs to get the ips and ports of servers
 	       String str = sc.next();
 	       System.out.println("address for server " + i + ": " + str);
 	    	if(Maekawa.debug)
@@ -89,8 +83,6 @@ public class Maekawa implements Lock, Messenger {
 	    	serverComms.add(new ServerComm());
 	    me = serverComms.get(myID);
 	    me.setID(myID);
-	    // set up this server
-	    // serverComms.set(myID, new ServerComm(ips.get(myID), ports.get(myID)));
 	    ServerSocket listener = null;
 	    try {
 			listener = new ServerSocket(ports.get(myID));
@@ -229,7 +221,7 @@ public class Maekawa implements Lock, Messenger {
 	@Override
 	public void requestCS(String s) {
 		// TODO Auto-generated method stub
-		
+		// not used
 	}
 
 	@Override
@@ -254,7 +246,7 @@ public class Maekawa implements Lock, Messenger {
 	@Override
 	public void releaseCS(String s) {
 		// TODO Auto-generated method stub
-		
+		// not used
 	}
 	
 	private boolean okayCS() {
@@ -408,7 +400,6 @@ public class Maekawa implements Lock, Messenger {
 				current.getServer().sendMsg(inquireMessage);
 			}
 			else {
-				//handleMessage(inquireMessage);
 				handleInquire(inquireMessage);
 			}
 		}
@@ -439,7 +430,6 @@ public class Maekawa implements Lock, Messenger {
 				current.getServer().sendMsg(grantMessage);
 			}
 			else {
-				//handleMessage(grantMessage);
 				handleGrant(grantMessage);
 			}
 		}
@@ -465,12 +455,6 @@ public class Maekawa implements Lock, Messenger {
 				System.out.println(s);
 			}
 		}
-//		synchronized(myQuorum) {
-//		System.out.println("my quorum is: ");
-//		for(ServerComm s: myQuorum) {
-//			System.out.println("$" + s);
-//		}
-//		}
 	}
 	
 	private boolean isGreater(Integer entry1, int pid1, Integer entry2, int pid2) {
@@ -490,7 +474,6 @@ public class Maekawa implements Lock, Messenger {
 	
 	
 	public static void main(String[] args) {
-		//GenerateServerInfo.go(4, "localhost", 8025);
 		Maekawa mutex = new Maekawa();
 		Scanner userInput = new Scanner(System.in);
 		int count = 0;

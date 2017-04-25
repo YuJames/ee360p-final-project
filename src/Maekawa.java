@@ -499,7 +499,6 @@ public class Maekawa implements Lock, Messenger {
 			
 		}
 
-		//while(true) {}
 	}
 	private static void logTime(int id, long time) {
 		System.out.println("server " + id + ": " + time + " ns");

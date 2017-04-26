@@ -290,14 +290,19 @@ public class Maekawa implements Lock, Messenger {
 			handleYield(m);
 		}
 		else if(m.tag.equals("fail")) {
-			Site.fail(requestSet, m.id);
+			handleFail(m);
 		}
 		
 		if(Maekawa.debug) {
 			System.out.println("after handling message:");
 			Site.printCurrent(requestSet);
+			System.out.println("hasGranted = " + hasGranted);
 		}
 		
+	}
+	
+	private synchronized void handleFail(Message m) {
+		Site.fail(requestSet, m.id);
 	}
 	
 	private synchronized void handleYield(Message m) {
@@ -352,6 +357,9 @@ public class Maekawa implements Lock, Messenger {
 	}
 	private synchronized void handleRelease(Message m) {
 		current = requests.poll();
+		if(Maekawa.debug && current == null) {
+			System.out.println(me + " has no requests in queue");
+		}
 		if(current != null) {
 			if(current.getID() != myID) {
 				grantMessage.timeStamp = v.getValue(myID);
@@ -364,6 +372,10 @@ public class Maekawa implements Lock, Messenger {
 				//handleMessage(grantMessage);
 				handleGrant(grantMessage);
 			}
+		}
+		else if(Site.find(requestSet, m.id).yieldGiven) {
+			Site.grant(requestSet, m.id);
+			notify();
 		}
 		else {
 			hasGranted = false;
@@ -403,7 +415,7 @@ public class Maekawa implements Lock, Messenger {
 				handleInquire(inquireMessage);
 			}
 		}
-		else if(myID < m.id || okayCS()) {
+		else if(myID <= m.id || okayCS()) {
 			failMessage.timeStamp = v.getValue(myID);
 			if(Maekawa.debug) {
 				System.out.println(me + " sending:" + failMessage + " to:" + r.getID());
@@ -478,24 +490,45 @@ public class Maekawa implements Lock, Messenger {
 		Scanner userInput = new Scanner(System.in);
 		int count = 0;
 		
+//		for(count = 0; count < 3; count++) {
+//			mutex.requestCS();
+//			System.out.println("\n\n\n\nin CS\n\n\n\n");
+//			mutex.releaseCS();
+//		}
+//		System.out.println("*****\n\n\n*****\ndone\n\n\n*****\n\n\n******" +
+//		"****************************************************");
+
+
+		
 		while(true) {
 			
-			if(userInput.hasNextLine()) {
+			while(userInput.hasNextLine()) {
 				String s = userInput.nextLine();
 				if(!s.equals("request")) {
 					continue;
+				}
+				else {
+					break;
 				}
 			}
 			
 			mutex.requestCS();
 			
-			System.out.println("iteration: " + count++);
-			logTime(mutex.myID, System.nanoTime());
+			System.out.println("********\n\nin CS\n\n********");
+			
+			while(userInput.hasNextLine()) {
+				String s = userInput.nextLine();
+				if(!s.equals("release")) {
+					continue;
+				}
+				else {
+					break;
+				}
+			}
 			
 			mutex.releaseCS();
 			
-			System.out.println("*****\n\n\n*****\ndone\n\n\n*****\n\n\n******" +
-					"****************************************************");
+			System.out.println("*******\n\nexiting CS\n\n*******\n");
 			
 		}
 
@@ -546,21 +579,27 @@ class Site {
 
 	public static void yield(List<Site> sites, Integer id) {
 		Site site = find(sites, id);
-		site.isActive = true;
-		site.yieldGiven = true;
-		site.grantReceived = false;
+		if(site.isActive) {
+			site.isActive = true;
+			site.yieldGiven = true;
+			site.grantReceived = false;
+		}
 	}
 	public static void fail(List<Site> sites, int id) {
 		Site site = find(sites, id);
-		site.resetFlags();
-		site.isActive = true;
-		site.failReceived = true;
+		if(site.isActive) {
+			site.resetFlags();
+			site.isActive = true;
+			site.failReceived = true;
+		}
 	}
 	public static void grant(List<Site> sites, int id) {
 		Site site = find(sites, id);
-		site.resetFlags();
-		site.isActive = true;
-		site.grantReceived = true;
+		if(site.isActive) {
+			site.resetFlags();
+			site.isActive = true;
+			site.grantReceived = true;
+		}
 	}
 	public static Site find(List<Site> sites, int id) {
 		for(Site s: sites) {

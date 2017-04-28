@@ -20,8 +20,9 @@ public class Request implements Comparable<Request> {
 	public Request() {
 		isVoid = true;
 	}
+	@Override
 	public String toString() {
-		return id + " " + ts;
+		return "id:" + id + " " + "ts:" + ts;
 	}
 	public ServerComm getServer() {
 		return server;
@@ -31,7 +32,10 @@ public class Request implements Comparable<Request> {
 	}
 	@Override
 	public int compareTo(Request arg0) {
-		return ts - (arg0).ts;
+		if(ts == arg0.ts) {
+			return id - arg0.id;
+		}
+		return ts - arg0.ts;
 	}
 	public int getTS() {
 		return ts;

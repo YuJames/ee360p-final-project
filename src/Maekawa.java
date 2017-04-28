@@ -48,7 +48,7 @@ public class Maekawa implements Lock, Messenger {
 		
 	   Scanner sc = new Scanner(System.in);
 	   
-	    myID = sc.nextInt() - 1;
+	    myID = sc.nextInt();
 	    int numServer = sc.nextInt();
 	    requests = new PriorityQueue<Request>(numServer);
 	    
@@ -192,19 +192,20 @@ public class Maekawa implements Lock, Messenger {
 	public synchronized void requestCS() {
 		Message m = new Message(myID, "request", v.getValue(myID), "");
 		wantCS = true;
+		v.sendAction();
+		m.timeStamp = v.getValue(myID);
 		for(Site s: requestSet) {
 			// send request to everyone in our quorum
 			s.isActive = true;
-			v.sendAction();
-			m.timeStamp = v.getValue(myID);
+			
 			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + m + "to: " + s);
+				System.out.println(me + " sending:" + m + "to: " + s + "\n");
 			}
 			if(s.server.id != myID) {
 				s.server.sendMsg(m);
 			}
 			else {
-				handleMessage(m);
+				handleRequest(m);
 			}
 		}
 		
@@ -226,13 +227,15 @@ public class Maekawa implements Lock, Messenger {
 
 	@Override
 	public synchronized void releaseCS() {
+		
 		wantCS = false;
+		v.sendAction();
 		for(Site s: requestSet) {
-			v.sendAction();
+			//v.sendAction();
 			releaseMessage.timeStamp = v.getValue(myID);
 			s.resetFlags();
 			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + releaseMessage + " to:" + s);
+				System.out.println(me + " sending:" + releaseMessage + " to:" + s + "\n");
 			}
 			if(s.server.id != myID) {
 				s.server.sendMsg(releaseMessage);
@@ -240,6 +243,10 @@ public class Maekawa implements Lock, Messenger {
 			else {
 				handleMessage(releaseMessage);
 			}
+		}
+		
+		if(Maekawa.debug) {
+			Site.printCurrent(requestSet);
 		}
 	}
 
@@ -260,15 +267,15 @@ public class Maekawa implements Lock, Messenger {
 	
 
 
-	@Override
-	public synchronized void handleMessage(Message m) {
+	//@Override
+	private synchronized void handleMsg(Message m) {
 		if(Maekawa.debug) {
 			System.out.println("before handling message:");
 			Site.printCurrent(requestSet);
 		}
 
 		if(Maekawa.debug) {
-			System.out.println(me + " received from " + everyone.get(m.id) + " : " + m);
+			System.out.println(me + " received from " + everyone.get(m.id) + " : " + m + "\n");
 		}
 		
 		v.receiveAction(m.id, m.timeStamp);
@@ -296,9 +303,14 @@ public class Maekawa implements Lock, Messenger {
 		if(Maekawa.debug) {
 			System.out.println("after handling message:");
 			Site.printCurrent(requestSet);
-			System.out.println("hasGranted = " + hasGranted);
+			System.out.println("hasGranted = " + hasGranted + "\n");
 		}
 		
+	}
+	
+	@Override
+	public void handleMessage(Message m) {
+		handleMsg(m);
 	}
 	
 	private synchronized void handleFail(Message m) {
@@ -310,7 +322,7 @@ public class Maekawa implements Lock, Messenger {
 		current = requests.poll();
 		grantMessage.timeStamp = v.getValue(myID);
 		if(Maekawa.debug) {
-			System.out.println(me + " sending:" + grantMessage + " to:" + current.getID());
+			System.out.println(me + " sending:" + grantMessage + " to:" + current.getID() + "\n");
 		}
 		if(myID != current.getServer().id) {
 			current.getServer().sendMsg(grantMessage);
@@ -325,10 +337,24 @@ public class Maekawa implements Lock, Messenger {
 			Site.grant(requestSet, m.id);
 			notify();
 		}
+		else if(!requests.isEmpty()) {
+			Request temp = current;
+			current = requests.poll();
+			grantMessage.timeStamp = v.getValue(myID);
+			if(temp == null) {
+				
+			}
+			if(current.getID() != myID) {
+				current.getServer().sendMsg(grantMessage);
+			}
+			else {
+				handleGrant(grantMessage);
+			}
+		}
 		else {
 			releaseMessage.timeStamp = v.getValue(myID);
 			if(Maekawa.debug) {
-				System.out.println(me + " sending: " + releaseMessage + " to " + everyone.get(m.id));
+				System.out.println(me + " sending: " + releaseMessage + " to " + everyone.get(m.id) + "\n");
 			}
 			if(m.id != myID) {
 				everyone.get(m.id).sendMsg(releaseMessage);
@@ -339,11 +365,21 @@ public class Maekawa implements Lock, Messenger {
 		}
 	}
 	private synchronized void handleInquire(Message m) {
+//		if(okayCS()) {
+//			failMessage.timeStamp = v.getValue(myID);
+//			if(myID != m.id) {
+//				everyone.get(m.id).sendMsg(failMessage);
+//			}
+//			else {
+//				handleFail(failMessage);
+//			}
+//		}
+		//else if(Site.mustYield(requestSet, m.id)) {
 		if(Site.mustYield(requestSet, m.id)) {
 			Site.yield(requestSet, m.id);
 			yieldMessage.timeStamp = v.getValue(myID);
 			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + yieldMessage + " to:" + current.getID());
+				System.out.println(me + " sending:" + yieldMessage + " to:" + current.getID() + "\n");
 			}
 			
 			if(myID != m.id) {
@@ -354,17 +390,29 @@ public class Maekawa implements Lock, Messenger {
 				handleYield(m);
 			}
 		}
+//		else {
+//			failMessage.timeStamp = v.getValue(myID);
+//			if(myID != m.id) {
+//				everyone.get(m.id).sendMsg(failMessage);
+//			}
+//			else {
+//				handleFail(failMessage);
+//			}
+//		}
 	}
 	private synchronized void handleRelease(Message m) {
 		current = requests.poll();
 		if(Maekawa.debug && current == null) {
-			System.out.println(me + " has no requests in queue");
+			System.out.println(me + " has no requests in queue" + "\n");
+		}
+		if(Maekawa.debug) {
+			printRequests(requests);
 		}
 		if(current != null) {
 			if(current.getID() != myID) {
 				grantMessage.timeStamp = v.getValue(myID);
 				if(Maekawa.debug) {
-					System.out.println(me + " sending:" + grantMessage + " to:" + current.getID());
+					System.out.println(me + " sending:" + grantMessage + " to:" + current.getID() + "\n");
 				}
 				current.getServer().sendMsg(grantMessage);
 			}
@@ -382,7 +430,7 @@ public class Maekawa implements Lock, Messenger {
 		}
 	}
 	private synchronized void handleRequest(Message m) {
-
+		
 		Request r = new Request(m.id, m.timeStamp, everyone.get(m.id), m.message);
 		requests.add(r);
 		
@@ -393,7 +441,7 @@ public class Maekawa implements Lock, Messenger {
 			grantMessage.timeStamp = v.getValue(myID);
 			current = requests.poll();
 			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + grantMessage + " to:" + current.getID());
+				System.out.println(me + " sending:" + grantMessage + " to:" + current.getID() + "\n");
 			}
 			if(current.getID() != myID) {
 				current.getServer().sendMsg(grantMessage);
@@ -406,7 +454,7 @@ public class Maekawa implements Lock, Messenger {
 		else if(isGreater(current.getTS(), current.getID(), newHead.getTS(), newHead.getID())) {
 			inquireMessage.timeStamp = v.getValue(myID);
 			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + inquireMessage + " to:" + current.getID());
+				System.out.println(me + " sending:" + inquireMessage + " to:" + current.getID() + "\n");
 			}
 			if(current.getID() != myID) {
 				current.getServer().sendMsg(inquireMessage);
@@ -415,36 +463,37 @@ public class Maekawa implements Lock, Messenger {
 				handleInquire(inquireMessage);
 			}
 		}
-		else if(myID <= m.id || okayCS()) {
+		//else if(myID <= m.id || okayCS()) {
+		else {
 			failMessage.timeStamp = v.getValue(myID);
 			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + failMessage + " to:" + r.getID());
+				System.out.println(me + " sending:" + failMessage + " to:" + r.getID() + "\n");
 			}
 			if(r.getID() != myID)
 				r.getServer().sendMsg(failMessage);
 			else
-				handleMessage(failMessage);
+				handleFail(failMessage);
 		}
-		else {
-			// if we have our own grant,
-			// and we need another grant from m.id for CS,
-			// then if m.id < my.id,
-			// yield our grant to m.id
-			Site.yield(requestSet, myID);
-			Request temp = current;
-			current = requests.poll();
-			requests.add(temp);
-			grantMessage.timeStamp = v.getValue(myID);
-			if(Maekawa.debug) {
-				System.out.println(me + " sending:" + grantMessage + " to: " + current.getServer());
-			}
-			if(current.getID() != myID) {
-				current.getServer().sendMsg(grantMessage);
-			}
-			else {
-				handleGrant(grantMessage);
-			}
-		}
+//		else {
+//			// if we have our own grant,
+//			// and we need another grant from m.id for CS,
+//			// then if m.id < my.id,
+//			// yield our grant to m.id
+//			Site.yield(requestSet, myID);
+//			Request temp = current;
+//			current = requests.poll();
+//			requests.add(temp);
+//			grantMessage.timeStamp = v.getValue(myID);
+//			if(Maekawa.debug) {
+//				System.out.println(me + " sending:" + grantMessage + " to: " + current.getServer() + "\n");
+//			}
+//			if(current.getID() != myID) {
+//				current.getServer().sendMsg(grantMessage);
+//			}
+//			else {
+//				handleGrant(grantMessage);
+//			}
+//		}
 	}
 	
 	
@@ -471,8 +520,18 @@ public class Maekawa implements Lock, Messenger {
 	
 	private boolean isGreater(Integer entry1, int pid1, Integer entry2, int pid2) {
 		if(entry2 == Integer.MAX_VALUE) return false;
+		if(Maekawa.debug) {
+			System.out.println("ts:" + entry1 + " id:" + pid1 + 
+					" ts:" + entry2 + " id:" + pid2);
+		}
 		return (entry1 > entry2) ||
 				((entry1 == entry2) && (pid1 > pid2));
+	}
+	
+	private void printRequests(Iterable<Request> requests) {
+		for(Request r: requests) {
+			System.out.println("request: " + r);
+		}
 	}
 	
 
@@ -488,8 +547,9 @@ public class Maekawa implements Lock, Messenger {
 	public static void main(String[] args) {
 		Maekawa mutex = new Maekawa();
 		Scanner userInput = new Scanner(System.in);
-		int count = 0;
 		
+//		int count = 0;
+//		
 //		for(count = 0; count < 3; count++) {
 //			mutex.requestCS();
 //			System.out.println("\n\n\n\nin CS\n\n\n\n");
@@ -541,17 +601,20 @@ public class Maekawa implements Lock, Messenger {
 
 class Site {
 	ServerComm server;
-	boolean failReceived = false;
-	boolean grantReceived = false;
-	boolean yieldGiven = false;
+	boolean failReceived;
+	boolean grantReceived;
+	boolean yieldGiven;
 	
 	boolean isActive = false;
 	
 	public Site(ServerComm s) {
 		server = s;
+		failReceived = true;
+		grantReceived = false;
+		yieldGiven = false;
 	}
 	public void resetFlags() {
-		failReceived = false;
+		failReceived = true;
 		grantReceived = false;
 		yieldGiven = false;
 		isActive = false;
@@ -564,8 +627,9 @@ class Site {
 	
 	public static boolean mustYield(List<Site> sites, int skip) {
 		for(Site s: sites) {
-			if(s.server.id != skip && s.isActive) {
-				if(s.failReceived) {
+			//if(s.server.id != skip && s.isActive) {
+			if(s.isActive) {
+				if(s.failReceived && !s.grantReceived) {
 					return true;
 				}
 				if(s.yieldGiven && !s.grantReceived) {
@@ -591,6 +655,7 @@ class Site {
 			site.resetFlags();
 			site.isActive = true;
 			site.failReceived = true;
+			site.grantReceived = false;
 		}
 	}
 	public static void grant(List<Site> sites, int id) {
@@ -599,9 +664,13 @@ class Site {
 			site.resetFlags();
 			site.isActive = true;
 			site.grantReceived = true;
+			site.failReceived = false;
 		}
 	}
 	public static Site find(List<Site> sites, int id) {
+		if(Maekawa.debug) {
+			System.out.println("findingn site: " + id);
+		}
 		for(Site s: sites) {
 			if(s.server.id == id) {
 				return s;
